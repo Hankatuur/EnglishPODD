@@ -1,242 +1,445 @@
-import React, { useState, useEffect } from 'react';
+/* AdminPage.jsx */
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
-  Button,
-  Input,
-  Select,
+  Heading,
   VStack,
   FormLabel,
-  useToast,
-  Heading,
-  Progress,
+  Input,
+  Select,
+  Button,
   Text,
-  Spinner,
-  HStack,
+  useToast,
+  Progress,
+  NumberInput,
+  NumberInputField,
 } from '@chakra-ui/react';
-import { useNavigate } from 'react-router-dom';
 import { supabase } from '../Supabase/Supabase.js';
+import mammoth from 'mammoth';
 
-const AdminPage = () => {
+export default function AdminPage() {
+  const navigate = useNavigate();
+  const toast = useToast();
+
   const [title, setTitle] = useState('');
   const [type, setType] = useState('pdf');
   const [file, setFile] = useState(null);
-  const [exerciseAnswerFile, setExerciseAnswerFile] = useState(null);
-  const [price, setPrice] = useState(0);
-  const [courseId, setCourseId] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [isAdminLoading, setIsAdminLoading] = useState(true);
+  const [answerFile, setAnswerFile] = useState(null);
+  const [maxAttempts, setMaxAttempts] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const toast = useToast();
-  const navigate = useNavigate();
+  // Convert .doc/.docx to JSON questions or answers array
+  const convertDocToJson = async (wordFile) => {
+    const buffer = await wordFile.arrayBuffer();
+    const { value: rawText } = await mammoth.extractRawText({ arrayBuffer: buffer });
+    return rawText.split('\n').map(l => l.trim()).filter(Boolean);
+  };
 
-  // Check if the user is an admin on component mount
-  useEffect(() => {
-    const checkAdmin = async () => {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+  // Load JSON file
+  const loadJsonFile = async (jsonFile) => {
+    const text = await jsonFile.text();
+    return JSON.parse(text);
+  };
 
-      if (userError || !user) {
-        toast({ status: 'error', title: 'Not logged in' });
-        navigate('/');
-        return;
-      }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!title.trim() || !file || (type === 'exercise' && (!answerFile || !maxAttempts))) {
+      setError('All fields are required.');
+      return;
+    }
 
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('is_admin')
-        .eq('id', user.id)
-        .single();
+    setLoading(true);
+    setError('');
 
-      if (profileError || !profile?.is_admin) {
-        toast({ status: 'error', title: 'Access Denied', description: 'You are not an admin.' });
-        navigate('/');
-        return;
-      }
-
-      // Fetch first course ID
-      const { data: courses, error: courseError } = await supabase
-        .from('courses')
-        .select('id')
-        .limit(1);
-
-      if (!courseError && courses.length > 0) {
-        setCourseId(courses[0].id);
-      }
-
-      setIsAdminLoading(false);
-    };
-
-    checkAdmin();
-  }, [navigate, toast]);
-
-  // Handle logout
-  const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
-      toast({
-        status: 'success',
-        title: 'Logged out successfully',
-        duration: 3000,
-      });
-      navigate('/'); // Redirect to the main page after logout
-    } catch (error) {
-      console.error('Logout failed:', error);
-      toast({
-        status: 'error',
-        title: 'Logout failed',
-        description: error.message,
-        duration: 5000,
-      });
-    }
-  };
+      if (type === 'exercise') {
+        // Process question file
+        let questions;
+        if (file.name.match(/\.json$/i)) {
+          const data = await loadJsonFile(file);
+          questions = Array.isArray(data.questions) ? data.questions : data;
+        } else {
+          questions = await convertDocToJson(file);
+        }
 
-  // Handle file upload
-  const handleUpload = async () => {
-    if (!file || !title || !type || !courseId) {
-      toast({ status: 'error', title: 'Missing fields' });
-      return;
-    }
+        // Process answer file
+        let correct_answers;
+        if (answerFile.name.match(/\.json$/i)) {
+          const data = await loadJsonFile(answerFile);
+          correct_answers = Array.isArray(data.correct_answers)
+            ? data.correct_answers
+            : data;
+        } else {
+          correct_answers = await convertDocToJson(answerFile);
+        }
 
-    setUploading(true);
+        // Insert into course_content to get content_id
+        const { data: [content], error: contentErr } = await supabase
+          .from('course_content')
+          .insert([{ title: title.trim(), content_type: 'exercise', storage_path: null, created_at: new Date() }])
+          .select('id');
+        if (contentErr) throw contentErr;
 
-    const fileName = `${Date.now()}-${title.replace(/\s+/g, '-')}.${file.name.split('.').pop()}`;
-    const bucket =
-      type === 'video' ? 'course-videos' :
-      type === 'pdf' ? 'course-pdfs' :
-      'course-exercises';
+        // Insert into exercises
+        const { error: exErr } = await supabase
+          .from('exercises')
+          .insert([{ content_id: content.id, questions, correct_answers, max_attempts: maxAttempts }]);
+        if (exErr) throw exErr;
 
-    const { error: uploadError } = await supabase.storage.from(bucket).upload(fileName, file);
+      } else {
+        // Video or PDF
+        const bucket = type === 'video' ? 'course-videos' : 'course-pdfs';
+        const ext = file.name.split('.').pop();
+        const fileName = `${Date.now()}-${title.replace(/\s+/g, '-')}.${ext}`;
 
-    if (uploadError) {
-      toast({ status: 'error', title: 'File upload failed', description: uploadError.message });
-      setUploading(false);
-      return;
-    }
+        const { error: uploadErr } = await supabase.storage.from(bucket).upload(fileName, file);
+        if (uploadErr) throw uploadErr;
 
-    // Determine if the content is free based on the price
-    const isFree = price === 0;
-
-    const insertPayload = {
-      title,
-      content_type: type,
-      storage_path: fileName,
-      course_id: courseId,
-      price: Number(price),
-      is_free: isFree, // Add the is_free field
-    };
-
-    console.log('[AdminPage] Insert Payload:', insertPayload); // Debug log
-
-    const { error: dbError } = await supabase.from('course_content').insert([insertPayload]);
-
-    if (dbError) {
-      toast({ status: 'error', title: 'Insert failed', description: dbError.message });
-      setUploading(false);
-      return;
-    }
-
-    // Upload answer file if exercise
-    if (type === 'exercise' && exerciseAnswerFile) {
-      const answerName = `answers-${Date.now()}-${exerciseAnswerFile.name}`;
-      const { error: answerError } = await supabase.storage
-        .from('course-exercises')
-        .upload(answerName, exerciseAnswerFile);
-
-      if (answerError) {
-        toast({ status: 'warning', title: 'Exercise uploaded, but answer upload failed.' });
+        const { error: dbErr } = await supabase
+          .from('course_content')
+          .insert([{ title: title.trim(), content_type: type, storage_path: fileName, created_at: new Date() }]);
+        if (dbErr) throw dbErr;
       }
+
+      toast({ status: 'success', title: 'Upload successful!' });
+      navigate('/admin/dashboard');
+    } catch (err) {
+      setError(err.message);
+      toast({ status: 'error', title: 'Upload failed', description: err.message });
+    } finally {
+      setLoading(false);
     }
-
-    toast({
-      status: 'success',
-      title: 'Upload Success',
-      description: `File uploaded to ${bucket}`,
-    });
-
-    setTitle('');
-    setFile(null);
-    setExerciseAnswerFile(null);
-    setPrice(0);
-    setUploading(false);
   };
-
-  // Prevent unauthorized access and handle browser back navigation
-  useEffect(() => {
-    const handleBeforeUnload = (event) => {
-      event.preventDefault();
-      navigate('/');
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [navigate]);
-
-  if (isAdminLoading) {
-    return (
-      <Box p={6} textAlign="center">
-        <Spinner size="xl" />
-        <Text mt={2}>Checking admin access...</Text>
-      </Box>
-    );
-  }
 
   return (
     <Box maxW="600px" mx="auto" p={6}>
-      <HStack justify="space-between" mb={6}>
-        <Heading>Admin Upload</Heading>
-        <Button onClick={handleLogout} colorScheme="red">
-          Logout
-        </Button>
-      </HStack>
+      <Heading mb={6}>Admin Upload</Heading>
+      <form onSubmit={handleSubmit}>
+        <VStack spacing={4} align="stretch">
+          <FormLabel>Title</FormLabel>
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Enter title"
+            isRequired
+          />
 
-      <VStack spacing={4} align="stretch">
-        <FormLabel>Title</FormLabel>
-        <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          <FormLabel>Type</FormLabel>
+          <Select value={type} onChange={(e) => setType(e.target.value)}>
+            <option value="video">Video</option>
+            <option value="pdf">PDF</option>
+            <option value="exercise">Exercise</option>
+          </Select>
 
-        <FormLabel>Type</FormLabel>
-        <Select value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="pdf">PDF</option>
-          <option value="video">Video</option>
-          <option value="exercise">Exercise</option>
-        </Select>
+          <FormLabel>
+            {type === 'exercise'
+              ? 'Question File (.doc, .docx or .json)'
+              : 'File'}
+          </FormLabel>
+          <Input
+            type="file"
+            accept={
+              type === 'exercise'
+                ? '.doc,.docx,application/json'
+                : type === 'video'
+                ? 'video/*'
+                : '.pdf'
+            }
+            onChange={(e) => setFile(e.target.files[0])}
+            isRequired
+          />
 
-        <FormLabel>Price ($)</FormLabel>
-        <Input
-          type="number"
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-          min={0}
-        />
+          {type === 'exercise' && (
+            <>
+              <FormLabel>Answer File (.doc, .docx or .json)</FormLabel>
+              <Input
+                type="file"
+                accept=".doc,.docx,application/json"
+                onChange={(e) => setAnswerFile(e.target.files[0])}
+                isRequired
+              />
 
-        <FormLabel>Upload File</FormLabel>
-        <Input type="file" onChange={(e) => setFile(e.target.files[0])} />
+              <FormLabel>Max Attempts</FormLabel>
+              <NumberInput
+                min={1}
+                value={maxAttempts}
+                onChange={(_, val) => setMaxAttempts(val)}
+              >
+                <NumberInputField />
+              </NumberInput>
+            </>
+          )}
 
-        {type === 'exercise' && (
-          <>
-            <FormLabel>Answer File (optional)</FormLabel>
-            <Input
-              type="file"
-              onChange={(e) => setExerciseAnswerFile(e.target.files[0])}
-            />
-          </>
-        )}
+          {loading && <Progress size="xs" isIndeterminate />}
+          {error && <Text color="red.500">{error}</Text>}
 
-        {uploading && <Progress size="xs" isIndeterminate colorScheme="blue" />}
-
-        <Button onClick={handleUpload} colorScheme="blue" isLoading={uploading}>
-          {uploading ? 'Uploading…' : 'Upload'}
-        </Button>
-      </VStack>
+          <Button type="submit" colorScheme="blue" isLoading={loading}>
+            Upload
+          </Button>
+        </VStack>
+      </form>
     </Box>
   );
-};
+}
 
-export default AdminPage;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// import React, { useState, useEffect } from 'react';
+// import {
+//   Box,
+//   Button,
+//   Input,
+//   Select,
+//   VStack,
+//   FormLabel,
+//   useToast,
+//   Heading,
+//   Progress,
+//   Text,
+//   Spinner,
+//   HStack,
+// } from '@chakra-ui/react';
+// import { useNavigate } from 'react-router-dom';
+// import { supabase } from '../Supabase/Supabase.js';
+
+// const AdminPage = () => {
+//   const [title, setTitle] = useState('');
+//   const [type, setType] = useState('pdf');
+//   const [file, setFile] = useState(null);
+//   const [exerciseAnswerFile, setExerciseAnswerFile] = useState(null);
+//   const [price, setPrice] = useState(0);
+//   const [courseId, setCourseId] = useState('');
+//   const [uploading, setUploading] = useState(false);
+//   const [isAdminLoading, setIsAdminLoading] = useState(true);
+
+//   const toast = useToast();
+//   const navigate = useNavigate();
+
+//   // Check if the user is an admin on component mount
+//   useEffect(() => {
+//     const checkAdmin = async () => {
+//       const {
+//         data: { user },
+//         error: userError,
+//       } = await supabase.auth.getUser();
+
+//       if (userError || !user) {
+//         toast({ status: 'error', title: 'Not logged in' });
+//         navigate('/');
+//         return;
+//       }
+
+//       const { data: profile, error: profileError } = await supabase
+//         .from('profiles')
+//         .select('is_admin')
+//         .eq('id', user.id)
+//         .single();
+
+//       if (profileError || !profile?.is_admin) {
+//         toast({ status: 'error', title: 'Access Denied', description: 'You are not an admin.' });
+//         navigate('/');
+//         return;
+//       }
+
+//       // Fetch first course ID
+//       const { data: courses, error: courseError } = await supabase
+//         .from('courses')
+//         .select('id')
+//         .limit(1);
+
+//       if (!courseError && courses.length > 0) {
+//         setCourseId(courses[0].id);
+//       }
+
+//       setIsAdminLoading(false);
+//     };
+
+//     checkAdmin();
+//   }, [navigate, toast]);
+
+//   // Handle logout
+//   const handleLogout = async () => {
+//     try {
+//       await supabase.auth.signOut();
+//       toast({
+//         status: 'success',
+//         title: 'Logged out successfully',
+//         duration: 3000,
+//       });
+//       navigate('/'); // Redirect to the main page after logout
+//     } catch (error) {
+//       console.error('Logout failed:', error);
+//       toast({
+//         status: 'error',
+//         title: 'Logout failed',
+//         description: error.message,
+//         duration: 5000,
+//       });
+//     }
+//   };
+
+//   // Handle file upload
+//   const handleUpload = async () => {
+//     if (!file || !title || !type || !courseId) {
+//       toast({ status: 'error', title: 'Missing fields' });
+//       return;
+//     }
+
+//     setUploading(true);
+
+//     const fileName = `${Date.now()}-${title.replace(/\s+/g, '-')}.${file.name.split('.').pop()}`;
+//     const bucket =
+//       type === 'video' ? 'course-videos' :
+//       type === 'pdf' ? 'course-pdfs' :
+//       'course-exercises';
+
+//     const { error: uploadError } = await supabase.storage.from(bucket).upload(fileName, file);
+
+//     if (uploadError) {
+//       toast({ status: 'error', title: 'File upload failed', description: uploadError.message });
+//       setUploading(false);
+//       return;
+//     }
+
+//     // Determine if the content is free based on the price
+//     const isFree = price === 0;
+
+//     const insertPayload = {
+//       title,
+//       content_type: type,
+//       storage_path: fileName,
+//       course_id: courseId,
+//       price: Number(price),
+//       is_free: isFree, // Add the is_free field
+//     };
+
+//     console.log('[AdminPage] Insert Payload:', insertPayload); // Debug log
+
+//     const { error: dbError } = await supabase.from('course_content').insert([insertPayload]);
+
+//     if (dbError) {
+//       toast({ status: 'error', title: 'Insert failed', description: dbError.message });
+//       setUploading(false);
+//       return;
+//     }
+
+//     // Upload answer file if exercise
+//     if (type === 'exercise' && exerciseAnswerFile) {
+//       const answerName = `answers-${Date.now()}-${exerciseAnswerFile.name}`;
+//       const { error: answerError } = await supabase.storage
+//         .from('course-exercises')
+//         .upload(answerName, exerciseAnswerFile);
+
+//       if (answerError) {
+//         toast({ status: 'warning', title: 'Exercise uploaded, but answer upload failed.' });
+//       }
+//     }
+
+//     toast({
+//       status: 'success',
+//       title: 'Upload Success',
+//       description: `File uploaded to ${bucket}`,
+//     });
+
+//     setTitle('');
+//     setFile(null);
+//     setExerciseAnswerFile(null);
+//     setPrice(0);
+//     setUploading(false);
+//   };
+
+//   // Prevent unauthorized access and handle browser back navigation
+//   useEffect(() => {
+//     const handleBeforeUnload = (event) => {
+//       event.preventDefault();
+//       navigate('/');
+//     };
+
+//     window.addEventListener('beforeunload', handleBeforeUnload);
+
+//     return () => {
+//       window.removeEventListener('beforeunload', handleBeforeUnload);
+//     };
+//   }, [navigate]);
+
+//   if (isAdminLoading) {
+//     return (
+//       <Box p={6} textAlign="center">
+//         <Spinner size="xl" />
+//         <Text mt={2}>Checking admin access...</Text>
+//       </Box>
+//     );
+//   }
+
+//   return (
+//     <Box maxW="600px" mx="auto" p={6}>
+//       <HStack justify="space-between" mb={6}>
+//         <Heading>Admin Upload</Heading>
+//         <Button onClick={handleLogout} colorScheme="red">
+//           Logout
+//         </Button>
+//       </HStack>
+
+//       <VStack spacing={4} align="stretch">
+//         <FormLabel>Title</FormLabel>
+//         <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+
+//         <FormLabel>Type</FormLabel>
+//         <Select value={type} onChange={(e) => setType(e.target.value)}>
+//           <option value="pdf">PDF</option>
+//           <option value="video">Video</option>
+//           <option value="exercise">Exercise</option>
+//         </Select>
+
+//         <FormLabel>Price ($)</FormLabel>
+//         <Input
+//           type="number"
+//           value={price}
+//           onChange={(e) => setPrice(e.target.value)}
+//           min={0}
+//         />
+
+//         <FormLabel>Upload File</FormLabel>
+//         <Input type="file" onChange={(e) => setFile(e.target.files[0])} />
+
+//         {type === 'exercise' && (
+//           <>
+//             <FormLabel>Answer File (optional)</FormLabel>
+//             <Input
+//               type="file"
+//               onChange={(e) => setExerciseAnswerFile(e.target.files[0])}
+//             />
+//           </>
+//         )}
+
+//         {uploading && <Progress size="xs" isIndeterminate colorScheme="blue" />}
+
+//         <Button onClick={handleUpload} colorScheme="blue" isLoading={uploading}>
+//           {uploading ? 'Uploading…' : 'Upload'}
+//         </Button>
+//       </VStack>
+//     </Box>
+//   );
+// };
+
+// export default AdminPage;
 
 
 

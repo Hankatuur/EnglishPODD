@@ -1,4 +1,3 @@
-
 import {
   Box,
   Flex,
@@ -29,11 +28,11 @@ const Footer = () => {
         px={4}
         direction={{ base: "column", md: "row" }}
         justify="space-between"
-        align="center"
+        align={{ base: "center", md: "center" }}
         gap={8}
-        height="250px"
+        flexWrap="wrap"
       >
-        <VStack spacing={3} align="center">
+        <VStack spacing={3} align="center" textAlign="center">
           <Image
             src="./assets/images/daalo.png"
             alt="Company Logo"
@@ -44,15 +43,19 @@ const Footer = () => {
           <Text fontSize="30px" fontWeight="bold" cursor="pointer">
             EnglishPod
           </Text>
-          <Text fontStyle="italic" textAlign="center">
+          <Text fontStyle="italic">
             Improve your English skills through interactive lessons, quizzes, and practice activities for all levels.
           </Text>
-          <Text fontStyle="italic" textAlign="center">
-            Email: info@englishpod.com
-          </Text>
+          <Text fontStyle="italic">Email: info@englishpod.com</Text>
         </VStack>
 
-        <HStack spacing={6}>
+        <HStack
+          spacing={4}
+          justify="center"
+          wrap="wrap"
+          flexDir={{ base: "row", md: "row" }}
+          mt={{ base: 6, md: 0 }}
+        >
           {[
             { icon: FaInstagram, url: "https://instagram.com", color: "#E1306C" },
             { icon: FaWhatsapp, url: "https://wa.me", color: "#25D366" },
@@ -64,8 +67,8 @@ const Footer = () => {
                 aria-label={social.icon.name}
                 icon={<social.icon />}
                 variant="variant"
-                boxSize="50px"
-                fontSize="35px"
+                size="lg"
+                fontSize="5xl"
                 _hover={{ ...iconHover, color: social.color }}
               />
             </Link>
@@ -77,6 +80,134 @@ const Footer = () => {
 };
 
 export default Footer;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// working but in mobile view social media icons not visible
+// import {
+//   Box,
+//   Flex,
+//   VStack,
+//   Text,
+//   HStack,
+//   IconButton,
+//   Image,
+//   useColorModeValue,
+//   Link,
+// } from "@chakra-ui/react";
+// import { FaInstagram, FaWhatsapp, FaFacebook, FaYoutube } from "react-icons/fa";
+
+// const Footer = () => {
+//   const bg = useColorModeValue("gray.800", "orange.200");
+//   const color = useColorModeValue("white", "gray.800");
+//   const iconHover = {
+//     transform: "translateY(-5px)",
+//     transition: "0.3s",
+//     filter: "drop-shadow(0 5px 5px rgba(0,0,0,0.2))",
+//   };
+
+//   return (
+//     <Box as="footer" id="footer" py={8} bg={bg} color={color}>
+//       <Flex
+//         maxW="container.lg"
+//         mx="auto"
+//         px={4}
+//         direction={{ base: "column", md: "row" }}
+//         justify="space-between"
+//         align="center"
+//         gap={8}
+//         height="250px"
+//       >
+//         <VStack spacing={3} align="center">
+//           <Image
+//             src="./assets/images/daalo.png"
+//             alt="Company Logo"
+//             boxSize="90px"
+//             objectFit="contain"
+//             cursor="pointer"
+//           />
+//           <Text fontSize="30px" fontWeight="bold" cursor="pointer">
+//             EnglishPod
+//           </Text>
+//           <Text fontStyle="italic" textAlign="center">
+//             Improve your English skills through interactive lessons, quizzes, and practice activities for all levels.
+//           </Text>
+//           <Text fontStyle="italic" textAlign="center">
+//             Email: info@englishpod.com
+//           </Text>
+//         </VStack>
+
+//         <HStack spacing={6}>
+//           {[
+//             { icon: FaInstagram, url: "https://instagram.com", color: "#E1306C" },
+//             { icon: FaWhatsapp, url: "https://wa.me", color: "#25D366" },
+//             { icon: FaFacebook, url: "https://facebook.com", color: "#3b5998" },
+//             { icon: FaYoutube, url: "https://youtube.com", color: "#FF0000" },
+//           ].map((social, idx) => (
+//             <Link key={idx} href={social.url} isExternal>
+//               <IconButton
+//                 aria-label={social.icon.name}
+//                 icon={<social.icon />}
+//                 variant="variant"
+//                 boxSize="50px"
+//                 fontSize="35px"
+//                 _hover={{ ...iconHover, color: social.color }}
+//               />
+//             </Link>
+//           ))}
+//         </HStack>
+//       </Flex>
+//     </Box>
+//   );
+// };
+
+// export default Footer;
 
 
 

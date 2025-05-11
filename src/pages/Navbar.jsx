@@ -45,8 +45,8 @@ const Navbar = () => {
   const links = [
     { label: "Home", href: "/" },
     { label: "About", href: "/about" },
-    { label: "Materials", href: "/Materials" },
-    { label: "Exercises", href: "/exercises" }
+    { label: "Materials", href: "/materials" },
+    { label: "Exercises", href: "/Exercise" }
   ];
 
   const AuthButtons = () => (

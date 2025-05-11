@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Text,
@@ -6,61 +6,50 @@ import {
   Flex,
   useColorModeValue,
   Badge,
-  Button,
+  Button
 } from '@chakra-ui/react';
-import { FaDownload, FaFilePdf } from 'react-icons/fa';
+import { FaDownload, FaHeart, FaFilePdf, FaFileAlt } from 'react-icons/fa';
 import ReactPlayer from 'react-player';
+import { useNavigate } from 'react-router-dom';
+import { Document, Page, pdfjs } from 'react-pdf';
 
-const MaterialCard = ({ title, type, isFree, url, duration, isSubscribed }) => {
+// Configure PDF worker
+pdfjs.GlobalWorkerOptions.workerSrc = 
+  `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+
+const MaterialCard = ({ title, type, isFree, url, duration, id }) => {
+  const navigate = useNavigate();
   const borderColor = useColorModeValue('gray.200', 'gray.600');
-  const iconColor = useColorModeValue('gray.700', 'gray.100');
-  const buttonColor = useColorModeValue('orange.500', 'orange.300');
+  const [numPages, setNumPages] = useState(null);
+  const [pdfError, setPdfError] = useState(false);
 
-  // State to track if the preview has ended
-  const [isPreviewEnded, setIsPreviewEnded] = useState(false);
-
-  // Ref to store the ReactPlayer instance
-  const playerRef = useRef(null);
-
-  // Debug Log: Verify Component Rendering
-  console.log("MaterialCard Component Rendered", { title, type, isFree, url, isSubscribed });
-
-  // useEffect to handle the playback behavior when video is locked
-  useEffect(() => {
-    if (!isFree && type === 'video' && url) {
-      let previewDuration = 5; // Default preview duration for videos > 1 minute
-      if (duration && duration <= 60) {
-        previewDuration = 2; // Preview duration for videos <= 1 minute
-      }
-      console.log(`Video is locked. Playing for preview duration: ${previewDuration} seconds`);
-
-      // Set timeout to pause the video after the preview duration
-      const timer = setTimeout(() => {
-        if (playerRef.current) {
-          playerRef.current.pause();
-          setIsPreviewEnded(true);
-          console.log('Preview ended for', title);
-        } else {
-          console.error('Error: ReactPlayer instance is undefined!');
-        }
-      }, previewDuration * 1000);
-
-      // Clean up the timeout on component unmount
-      return () => clearTimeout(timer);
+  // Get correct bucket based on content type
+  const getBucket = () => {
+    switch(type) {
+      case 'video': return 'course-videos';
+      case 'pdf': return 'course-pdfs';
+      case 'exercise': return 'course-exercises';
+      default: return 'course-videos';
     }
-  }, [isFree, type, url, duration, title]);
+  };
 
-  // Handle download for PDFs (free or locked)
+  // Construct proper URL
+  const mediaUrl = `https://kkjmwlkahplmosqhgqat.supabase.co/storage/v1/object/public/${getBucket()}/${encodeURIComponent(url)}`;
+
+  const handleEnroll = () => navigate(`/subscription?courseId=${id}`);
+
   const handleDownload = () => {
-    console.log('Download attempted for PDF:', title, url);
-    if (isFree && url) {
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = title;
-      link.click();
-    } else {
-      console.log('PDF is not free or URL is missing');
-    }
+    const link = document.createElement('a');
+    link.href = mediaUrl;
+    link.download = title;
+    link.click();
+  };
+
+  const formatDuration = (seconds) => {
+    if (!seconds) return '00:00';
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
   };
 
   return (
@@ -71,86 +60,540 @@ const MaterialCard = ({ title, type, isFree, url, duration, isSubscribed }) => {
       borderColor={borderColor}
       p={4}
       w="100%"
-      display="flex"
-      flexDirection="column"
-      justifyContent="space-between"
       _hover={{ transform: 'scale(1.03)', transition: '0.3s' }}
     >
       <Flex justify="space-between" align="center" mb={3}>
-        <Text fontWeight="bold" fontSize="lg" noOfLines={1}>
-          {title}
-        </Text>
+        <Text fontWeight="bold" fontSize="lg" noOfLines={1}>{title}</Text>
         <Badge colorScheme={isFree ? 'green' : 'red'}>
-          {isFree ? 'Free' : 'Locked'}
+          {isFree ? 'FREE' : 'PREMIUM'}
         </Badge>
       </Flex>
 
-      <Box flex="1" display="flex" alignItems="center" justifyContent="center" mb={3}>
-        {type === 'video' && url ? (
-          <Box position="relative" aspectRatio={16 / 9} overflow="hidden">
+      <Box minH="200px" mb={3}>
+        {type === 'video' ? (
+          <Box position="relative" pt="56.25%">
             <ReactPlayer
-              ref={playerRef} // Store the ReactPlayer instance in the ref
-              url={url}
+              url={mediaUrl}
               controls
               width="100%"
               height="100%"
-              style={{ borderRadius: '10px' }}
-              playing={!isPreviewEnded && (isFree || isSubscribed)} // Play if free or subscribed
+              style={{ position: 'absolute', top: 0, left: 0 }}
+              config={{
+                file: {
+                  attributes: {
+                    crossOrigin: 'anonymous'
+                  }
+                }
+              }}
             />
             {duration && (
-              <Badge
-                position="absolute"
-                bottom="2"
-                right="2"
-                fontSize="xs"
-                bg="blackAlpha.600"
-                color="white"
-              >
-                {duration}
+              <Badge position="absolute" bottom="2" right="2" bg="blackAlpha.800">
+                {formatDuration(duration)}
               </Badge>
             )}
           </Box>
         ) : (
-          <Box display="flex" justifyContent="center" alignItems="center" h="160px">
-            <FaFilePdf
-              color={iconColor}
-              fontSize={{ base: '4rem', md: '3rem', lg: '2.5rem' }}
-            />
+          <Box borderWidth="1px" borderRadius="md" p={2}>
+            {type === 'pdf' ? (
+              <Document
+                file={mediaUrl}
+                onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+                onLoadError={() => setPdfError(true)}
+                loading={<Text>Loading PDF...</Text>}
+              >
+                {!pdfError && <Page pageNumber={1} width={250} />}
+              </Document>
+            ) : (
+              <Box textAlign="center" py={8}>
+                <FaFileAlt size="3em" />
+                <Text mt={2}>Exercise File</Text>
+              </Box>
+            )}
+            {pdfError && (
+              <Text color="red.500" mt={2}>Failed to load PDF</Text>
+            )}
+            {type === 'pdf' && !pdfError && (
+              <Text fontSize="sm" mt={2}>Pages: {numPages || 'Loading...'}</Text>
+            )}
           </Box>
         )}
       </Box>
 
-      <Flex justify="space-between" align="center" mt={2}>
+      <Flex justify="space-between" align="center">
         <Flex gap={2}>
-          {type === 'pdf' && isFree && (
+          {isFree && type !== 'video' && (
             <IconButton
               icon={<FaDownload />}
-              size="sm"
-              aria-label="Download PDF"
+              aria-label={`Download ${type}`}
               onClick={handleDownload}
               _hover={{ transform: 'scale(1.1)', bg: 'green.400' }}
             />
           )}
-          {!isFree && !isSubscribed && (
-            <Button
-              size="sm"
-              colorScheme="orange"
-              onClick={() => window.location.href = '/subscription'}
-              _hover={{ bg: buttonColor }}
-            >
-              Subscribe
-            </Button>
-          )}
+          <IconButton
+            icon={<FaHeart />}
+            aria-label="Like"
+            _hover={{ transform: 'scale(1.1)', bg: 'pink.400' }}
+          />
         </Flex>
-        <Text fontSize="xs" color="gray.500">
-          {type === 'video' ? 'Video' : type.toUpperCase()}
-        </Text>
+        
+        {!isFree && (
+          <Button 
+            colorScheme="blue" 
+            size="sm"
+            onClick={handleEnroll}
+          >
+            Enroll
+          </Button>
+        )}
       </Flex>
     </Box>
   );
 };
 
 export default MaterialCard;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// MaterialCard.jsx - fetching  UnCorrected Version
+// import React from 'react';
+// import { Card, CardBody, Heading, Button, Text, Link } from '@chakra-ui/react';
+// import PropTypes from 'prop-types';
+
+// const MaterialCard = ({ content, isEnrolled }) => {
+//   // 1. Validate critical props
+//   if (!content?.content_type || !content?.storage_path) {
+//     console.error('Invalid content:', content);
+//     return null;
+//   }
+
+//   // 2. Map content types to buckets
+//   const BUCKET_MAP = {
+//     video: 'course-videos',
+//     pdf: 'course-pdfs',
+//     exercise: 'course-exercises'
+//   };
+
+//   const bucket = BUCKET_MAP[content.content_type];
+//   if (!bucket) {
+//     console.error('Invalid content type:', content.content_type);
+//     return null;
+//   }
+
+//   // 3. Clean storage path (remove leading/trailing slashes)
+//   const cleanPath = content.storage_path.replace(/^\/+|\/+$/g, '');
+  
+//   // 4. Encode URI components to handle spaces/special chars
+//   const encodedPath = encodeURIComponent(cleanPath).replace(/%2F/g, '/');
+  
+//   // 5. Construct final URL
+//   const storageUrl = `https://kkjmwlkahplmosqhgqat.supabase.co/storage/v1/object/public/${bucket}/${encodedPath}`;
+
+//   return (
+//     <Card variant="outline" h="full" boxShadow="md">
+//       <CardBody>
+//         <Heading size="md" mb={2}>{content.title}</Heading>
+//         <Text fontSize="sm" color="gray.500" mb={4}>
+//           {content.content_type.toUpperCase()} • 
+//           {content.price > 0 ? `$${content.price}` : 'FREE'}
+//         </Text>
+
+//         {(isEnrolled || content.is_free) ? (
+//           <Button
+//             as={Link}
+//             href={storageUrl}
+//             target="_blank"
+//             rel="noopener noreferrer"
+//             colorScheme="blue"
+//             w="full"
+//             _hover={{ textDecoration: 'none' }}
+//           >
+//             Open {content.content_type}
+//           </Button>
+//         ) : (
+//           <Button
+//             colorScheme="orange"
+//             w="full"
+//             isDisabled
+//             title="Subscription required"
+//           >
+//             Subscribe to Access
+//           </Button>
+//         )}
+//       </CardBody>
+//     </Card>
+//   );
+// };
+
+// MaterialCard.propTypes = {
+//   content: PropTypes.shape({
+//     id: PropTypes.string.isRequired,
+//     title: PropTypes.string.isRequired,
+//     content_type: PropTypes.oneOf(['video', 'pdf', 'exercise']).isRequired,
+//     storage_path: PropTypes.string.isRequired,
+//     course_id: PropTypes.string.isRequired,
+//     price: PropTypes.number,
+//     is_free: PropTypes.bool
+//   }).isRequired,
+//   isEnrolled: PropTypes.bool.isRequired
+// };
+
+// export default MaterialCard;
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ // not fetching data from supabse 
+ // import React from 'react';
+// import { Card, CardBody, Heading, Button, Text, Link } from '@chakra-ui/react';
+// import PropTypes from 'prop-types';
+
+// const MaterialCard = ({ content, isEnrolled }) => {
+//   const resolveBucket = () => {
+//     switch(content.content_type) {
+//       case 'video': return 'course-videos';
+//       case 'pdf': return 'course-pdfs';
+//       case 'exercise': return 'course-exercises';
+//       default: throw new Error(`Unknown content type: ${content.content_type}`);
+//     }
+//   };
+
+//   const fileUrl = `https://kkjmwlkahplmosqhgqat.supabase.co/storage/v1/object/public/${resolveBucket()}/${content.storage_path}`;
+
+//   return (
+//     <Card variant="outline" h="full" boxShadow="md">
+//       <CardBody>
+//         <Heading size="md" mb={2}>{content.title}</Heading>
+//         <Text fontSize="sm" color="gray.500" mb={4}>
+//           {content.content_type.toUpperCase()} • 
+//           {content.price > 0 ? `$${content.price}` : 'Free Resource'}
+//         </Text>
+
+//         {(isEnrolled || content.price === 0) ? (
+//           <Button
+//             as={Link}
+//             href={fileUrl}
+//             target="_blank"
+//             colorScheme="blue"
+//             w="full"
+//             _hover={{ textDecoration: 'none' }}
+//           >
+//             Open {content.content_type}
+//           </Button>
+//         ) : (
+//           <Button
+//             colorScheme="orange"
+//             w="full"
+//             onClick={() => window.location.href = `/courses/${content.course_id}/enroll`}
+//           >
+//             Enroll to Access (${content.price})
+//           </Button>
+//         )}
+//       </CardBody>
+//     </Card>
+//   );
+// };
+
+// MaterialCard.propTypes = {
+//   content: PropTypes.shape({
+//     id: PropTypes.string.isRequired,
+//     title: PropTypes.string.isRequired,
+//     content_type: PropTypes.oneOf(['video', 'pdf', 'exercise']).isRequired,
+//     storage_path: PropTypes.string.isRequired,
+//     price: PropTypes.number.isRequired,
+//     course_id: PropTypes.string.isRequired
+//   }).isRequired,
+//   isEnrolled: PropTypes.bool.isRequired
+// };
+
+// export default MaterialCard;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// works but without paypal button component
+// import React, { useState, useRef, useEffect } from 'react';
+// import {
+//   Box,
+//   Text,
+//   IconButton,
+//   Flex,
+//   useColorModeValue,
+//   Badge,
+//   Button,
+// } from '@chakra-ui/react';
+// import { FaDownload, FaFilePdf } from 'react-icons/fa';
+// import ReactPlayer from 'react-player';
+
+// const MaterialCard = ({ title, type, isFree, url, duration, isSubscribed }) => {
+//   const borderColor = useColorModeValue('gray.200', 'gray.600');
+//   const iconColor = useColorModeValue('gray.700', 'gray.100');
+//   const buttonColor = useColorModeValue('orange.500', 'orange.300');
+
+//   // State to track if the preview has ended
+//   const [isPreviewEnded, setIsPreviewEnded] = useState(false);
+
+//   // Ref to store the ReactPlayer instance
+//   const playerRef = useRef(null);
+
+//   // Debug Log: Verify Component Rendering
+//   console.log("MaterialCard Component Rendered", { title, type, isFree, url, isSubscribed });
+
+//   // useEffect to handle the playback behavior when video is locked
+//   useEffect(() => {
+//     if (!isFree && type === 'video' && url) {
+//       let previewDuration = 5; // Default preview duration for videos > 1 minute
+//       if (duration && duration <= 60) {
+//         previewDuration = 2; // Preview duration for videos <= 1 minute
+//       }
+//       console.log(`Video is locked. Playing for preview duration: ${previewDuration} seconds`);
+
+//       // Set timeout to pause the video after the preview duration
+//       const timer = setTimeout(() => {
+//         if (playerRef.current) {
+//           playerRef.current.pause();
+//           setIsPreviewEnded(true);
+//           console.log('Preview ended for', title);
+//         } else {
+//           console.error('Error: ReactPlayer instance is undefined!');
+//         }
+//       }, previewDuration * 1000);
+
+//       // Clean up the timeout on component unmount
+//       return () => clearTimeout(timer);
+//     }
+//   }, [isFree, type, url, duration, title]);
+
+//   // Handle download for PDFs (free or locked)
+//   const handleDownload = () => {
+//     console.log('Download attempted for PDF:', title, url);
+//     if (isFree && url) {
+//       const link = document.createElement('a');
+//       link.href = url;
+//       link.download = title;
+//       link.click();
+//     } else {
+//       console.log('PDF is not free or URL is missing');
+//     }
+//   };
+
+//   return (
+//     <Box
+//       borderWidth="1px"
+//       borderRadius="2xl"
+//       overflow="hidden"
+//       borderColor={borderColor}
+//       p={4}
+//       w="100%"
+//       display="flex"
+//       flexDirection="column"
+//       justifyContent="space-between"
+//       _hover={{ transform: 'scale(1.03)', transition: '0.3s' }}
+//     >
+//       <Flex justify="space-between" align="center" mb={3}>
+//         <Text fontWeight="bold" fontSize="lg" noOfLines={1}>
+//           {title}
+//         </Text>
+//         <Badge colorScheme={isFree ? 'green' : 'red'}>
+//           {isFree ? 'Free' : 'Locked'}
+//         </Badge>
+//       </Flex>
+
+//       <Box flex="1" display="flex" alignItems="center" justifyContent="center" mb={3}>
+//         {type === 'video' && url ? (
+//           <Box position="relative" aspectRatio={16 / 9} overflow="hidden">
+//             <ReactPlayer
+//               ref={playerRef} // Store the ReactPlayer instance in the ref
+//               url={url}
+//               controls
+//               width="100%"
+//               height="100%"
+//               style={{ borderRadius: '10px' }}
+//               playing={!isPreviewEnded && (isFree || isSubscribed)} // Play if free or subscribed
+//             />
+//             {duration && (
+//               <Badge
+//                 position="absolute"
+//                 bottom="2"
+//                 right="2"
+//                 fontSize="xs"
+//                 bg="blackAlpha.600"
+//                 color="white"
+//               >
+//                 {duration}
+//               </Badge>
+//             )}
+//           </Box>
+//         ) : (
+//           <Box display="flex" justifyContent="center" alignItems="center" h="160px">
+//             <FaFilePdf
+//               color={iconColor}
+//               fontSize={{ base: '4rem', md: '3rem', lg: '2.5rem' }}
+//             />
+//           </Box>
+//         )}
+//       </Box>
+
+//       <Flex justify="space-between" align="center" mt={2}>
+//         <Flex gap={2}>
+//           {type === 'pdf' && isFree && (
+//             <IconButton
+//               icon={<FaDownload />}
+//               size="sm"
+//               aria-label="Download PDF"
+//               onClick={handleDownload}
+//               _hover={{ transform: 'scale(1.1)', bg: 'green.400' }}
+//             />
+//           )}
+//           {!isFree && !isSubscribed && (
+//             <Button
+//               size="sm"
+//               colorScheme="orange"
+//               onClick={() => window.location.href = '/subscription'}
+//               _hover={{ bg: buttonColor }}
+//             >
+//               Subscribe
+//             </Button>
+//           )}
+//         </Flex>
+//         <Text fontSize="xs" color="gray.500">
+//           {type === 'video' ? 'Video' : type.toUpperCase()}
+//         </Text>
+//       </Flex>
+//     </Box>
+//   );
+// };
+
+// export default MaterialCard;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
